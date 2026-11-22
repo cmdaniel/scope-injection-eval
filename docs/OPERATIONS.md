@@ -19,7 +19,7 @@ This is an independent, personal research project. Nothing here describes any em
 5. [Use AI to build deterministic components](#5-use-ai-to-build-deterministic-components)
 6. [Observability](#6-observability)
 7. [Operational readiness checklist](#7-operational-readiness-checklist)
-8. [Optimisation roadmap for this project](#8-optimisation-roadmap-for-this-project)
+8. [Further optimisations for this project](#8-further-optimisations-for-this-project)
 
 ## 1. The short version
 
@@ -28,8 +28,8 @@ This is an independent, personal research project. Nothing here describes any em
 - **Prompt caching is the largest free lever.** 93% of input tokens were read from the cache, which saved 55% on Haiku.
 - **The Batch API is the next free lever.** It takes 50% off, stacks with caching, and suits evaluation runs because nobody is waiting for the answer.
 - **Model choice is about validity before cost.** In this project the cheap model made the study cheap, but it also refused the attacker role and resisted every template attack. The two main questions were therefore left unanswered.
-- **The cheapest token is the one never sent.** The oracle, the egress filter, the scope check and the statistics are all deterministic code, so labelling 1,680 episodes cost nothing and can be replayed at any time. Use models at development time to help write such components, and keep model calls at run time for genuine judgement.
-- **Measure everything from the API's own meters.** Every agent episode, generator call and detector call is now metered and costed, and the report shows median and 95th-percentile episode time.
+- **Deterministic code costs nothing to run.** The oracle, the egress filter, the scope check and the statistics are all deterministic code, so labelling 1,680 episodes cost nothing and can be replayed at any time. Use models at development time to help write such components, and keep model calls at run time for genuine judgement.
+- **Measure everything from the API's own meters.** Every agent episode, generator call and detector call is metered and costed, and the report shows median and 95th-percentile episode time.
 
 ## 2. How an agent episode is billed
 
@@ -118,9 +118,9 @@ Apply the levers in this order. The first group is free: the answer does not cha
 | Lever | Status here | Notes |
 |---|---|---|
 | **Prompt caching** | On: one breakpoint on the static system prompt and tools, plus automatic caching for the conversation tail | 93% of input read from cache. To stay healthy: keep anything dynamic (timestamps, IDs) out of the cached prefix, keep tool order stable, and do not change effort, thinking settings or model mid-episode. Re-check cache reads after any change to how prompts are built. |
-| **Batch API** | Not yet | 50% off every token, including cache reads and writes. Ideal for evaluation runs. A tool loop needs turn-by-turn batching: submit turn *k* of every episode as one batch, run the tools locally, then submit turn *k*+1. Results can take up to 24 hours. |
-| **Input hygiene** | Small already | The tool schemas and system prompt are short. Rules for larger systems: never restate tool schemas in prose, prefer narrow tools (`lookup_customer(id)`) over data dumps, and gate unbounded input with token counting. |
-| **Output shape** | Partly | Tell the model the exact answer shape. Here, the safety warnings were the main source of extra output. In production, decide whether a one-line warning is enough. |
+| **Batch API** | Not implemented | 50% off every token, including cache reads and writes. Ideal for evaluation runs. A tool loop needs turn-by-turn batching: submit turn *k* of every episode as one batch, run the tools locally, then submit turn *k*+1. Results can take up to 24 hours. |
+| **Input hygiene** | Small already | The tool schemas and system prompt are short. Rules for larger systems: never restate tool schemas in prose, prefer narrow tools (`lookup_customer(customer_id)`) over data dumps, and gate unbounded input with token counting. |
+| **Output shape** | Not tuned | Tell the model the exact answer shape. Here, the safety warnings were the main source of extra output. In production, decide whether a one-line warning is enough. |
 | **`max_tokens` as a backstop** | 16,000 per request | `max_tokens` is not a cost control. A truncated answer is a failed attempt that still costs money. |
 
 ### Trade-off levers (need an evaluation)
@@ -149,7 +149,7 @@ Apply the levers in this order. The first group is free: the answer does not cha
 | Scope enforcement (`sandbox.py`): at the tool boundary | Yes | Not acceptable at all: a security boundary must not depend on a model's judgement |
 | Output egress filter (`controls.py`): an allowlist of internal hosts | Yes | A classifier call per answer |
 | Heuristic detector: regular expressions | Yes | AUC 0.975 on templates, for $0 |
-| Statistics (`stats.py`): no dependencies | Yes | — |
+| Statistics (`stats.py`): no dependencies | Yes | Not applicable |
 
 ### A workflow that turns model judgement into code
 
@@ -169,14 +169,14 @@ Apply the levers in this order. The first group is free: the answer does not cha
 
 ## 6. Observability
 
-### What the harness records now
+### What the harness records
 
 | Where | What |
 |---|---|
-| Each agent episode (`episodes.jsonl`) | The four token meters and request count; wall-clock seconds; outcome and `stop_reason` (including refusals with their category); every tool call with allowed or denied and the reason; outbox; final answer; full transcript; oracle version; harm labels and the labels after the egress filter |
+| Each agent episode (`episodes.jsonl`) | The four token meters and request count; wall-clock seconds; outcome, with a refusal's category in `detail`; each turn's `stop_reason` in the transcript; every tool call with allowed or denied and the reason; outbox; final answer; full transcript; oracle version; harm labels and the labels after the egress filter |
 | Each run (`meta.json`) | Agent, model, effort, prompt caching, grid definition, start time and any relabelling history |
-| Each report (`report.md`) | Measured cost and the cost without caching, share of input read from cache, median and 95th-percentile episode time |
-| The generator (`attacks/generated.usage.json`) | Token meters, cost, seconds and effort, in total and per goal with each `stop_reason` |
+| Each report (`report.md`) | Measured cost and the cost without caching, share of input read from cache, and median and 95th-percentile episode time (for runs recorded with timing; the published runs predate it) |
+| The generator (`attacks/generated.usage.json`, written by each `generate` run; the published Haiku run predates it) | Token meters, cost, seconds and effort, in total and per goal with each `stop_reason` |
 | The LLM detector (`detect` output) | Token meters, cost, seconds, effort and the number of refusals |
 
 ### Signals worth tracking
@@ -188,7 +188,7 @@ Apply the levers in this order. The first group is free: the answer does not cha
 | **Cache writes per episode** | Should be about one turn's worth. If it is the whole conversation, the cache is being rebuilt on every request | 265 tokens |
 | **Output tokens per episode** | Rising output means more thinking or more verbose answers, and it is most of the bill | 373 (attacked) and 271 (control) |
 | **`stop_reason` distribution** | `max_tokens` is a failed attempt; `refusal` needs handling; both should be rare and explained | 0 refusals, 0 truncations |
-| **Latency, p50 and p95** | Capacity planning and timeouts | Recorded from now on |
+| **Latency, p50 and p95** | Capacity planning and timeouts | Not recorded in the published runs, which predate timing |
 | **Denied tool calls** | A security signal: the model tried something its scope forbids | 0 |
 | **Errors and retries** | 429s and 5xx responses need backoff. The SDK retries twice by default | 0 errors |
 | **Harm and egress-filter hits** | The outcome being protected against | See the results |
@@ -202,13 +202,13 @@ Apply the levers in this order. The first group is free: the answer does not cha
 - **Cache diagnostics (beta).** When the cache-read share drops, the API can report where two consecutive requests diverged, without logging payloads.
 - **Usage and cost reporting** at organisation level. Reconcile the harness's own cost figures with billing, from the same time window.
 - **Spend limits and preflight estimates.** `scopeeval plan` prices a run before it starts, and `run` asks for confirmation. In an organisation, a workspace spend limit is the final backstop.
-- **A gap worth closing:** log each response's message ID with its episode, so a single episode can be matched to server-side traces and support requests.
+- **Not implemented:** logging each response's message ID with its episode, so a single episode can be matched to server-side traces and support requests.
 
 ## 7. Operational readiness checklist
 
 Before running an agent evaluation, or any agent workload, routinely:
 
-- **Pin everything that changes behaviour or price:** the model ID, effort, prompt and tool versions, the oracle version and the price table. Record them per run (`meta.json` does this).
+- **Pin everything that changes behaviour or price:** the model ID, effort, prompt and tool versions, the oracle version and the price table, and record them per run. Here, `meta.json` records the model, effort, caching and grid, and every row records its oracle version. Prompt, tool and price-table versions come only from the git commit.
 - **Make runs idempotent and resumable.** Each cell has a key, and completed cells are skipped on restart.
 - **Scale by partitioning, not by sharing state.** The Haiku grid ran as eight processes, one per scope and defence, each writing its own file, merged afterwards. Mind rate limits when raising concurrency.
 - **Keep failures as data.** Errored episodes keep their usage, refusals are an outcome, and nothing is retried silently with another model.
@@ -218,9 +218,9 @@ Before running an agent evaluation, or any agent workload, routinely:
 - **Pre-register changes.** A dated change log stops a pipeline from quietly tuning itself to its results.
 - **Run a cheap end-to-end check before an expensive run.** The Haiku runs, under $0.60 in total, found two pipeline bugs before any primary run: refusals saved as attacks, and the oracle's URL parsing.
 
-## 8. Optimisation roadmap for this project
+## 8. Further optimisations for this project
 
-Ranked by saving and effort, without changing any result:
+None of these is implemented. They are ranked by saving and effort, and none changes a result:
 
 1. **Batch API for grid runs:** −50%, about $5.50–8 instead of about $11–16 for an Opus 5.5 grid. Needs turn-by-turn batching.
 2. **Adaptive top-up of repeats,** pre-registered: up to −50% of episodes.

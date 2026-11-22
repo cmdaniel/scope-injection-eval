@@ -60,5 +60,5 @@ The [OWASP Top 10 for Agentic Applications](https://genai.owasp.org/resource/owa
 
 - Attacks on the harness, the API or the operator's machine.
 - Direct prompt injection typed by the user.
-- Memory poisoning across sessions, multi-agent handoffs and multi-round adaptive attackers. The adaptive attacker is on the roadmap.
+- Memory poisoning across sessions, multi-agent handoffs and multi-round adaptive attackers. An adaptive attacker is future work.
 - Real external delivery: nothing in the sandbox is ever sent, and every domain is under the reserved `.example` name.

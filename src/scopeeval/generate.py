@@ -2,6 +2,8 @@
 
 The output is frozen to attacks/generated.json and never used to tune a
 defence or detector. Refusals are recorded, not retried with another model.
+Token usage and cost, in total and per goal, are written to
+attacks/generated.usage.json.
 """
 
 from __future__ import annotations

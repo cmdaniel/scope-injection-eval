@@ -18,7 +18,7 @@
 `scopeeval` measures indirect prompt injection against a tool-using Claude agent. An injection is an instruction hidden in an email or file that the agent reads while doing an ordinary task. The harness asks three questions:
 
 1. How much does **least-privilege tool scope** reduce the rate and severity of successful attacks, and what does it cost in completed tasks?
-2. Do **injection detectors** tuned on known attack templates still work on held-out attacks written by another model?
+2. Do **injection detectors** tuned on known attack templates still work on held-out attacks they were not tuned on?
 3. Can harm be **labelled reliably enough** to act as a reference standard?
 
 The design is organised around the **lethal trifecta** ([Willison, 2025](https://simonwillison.net/2025/Jun/16/the-lethal-trifecta/)). An agent with access to private data, exposure to untrusted content and a way to communicate externally can be turned into a data thief by anything it reads. Willison's advice is to remove one of the three, not to trust a filter to catch every attack, because an attacker needs only one success. The harness tests that advice directly:
@@ -37,14 +37,17 @@ Most prompt-injection evaluations report a single attack success rate, measured 
 This project applies those habits to agent safety. The hypotheses, taxonomy and analysis plan are in [PREREGISTRATION.md](PREREGISTRATION.md), written before any model was run, with every later change dated in its change log.
 
 **Further reading in this repository:**
-- [STARS summary](https://github.com/cmdaniel/scope-injection-eval/blob/main/docs/STARS.md): why the harness exists, what it has shown so far and which problems it addresses.
+- [STARS summary](https://github.com/cmdaniel/scope-injection-eval/blob/main/docs/STARS.md): why the harness exists, what it has shown and which problems it addresses.
 - [Threat model](https://github.com/cmdaniel/scope-injection-eval/blob/main/docs/THREAT_MODEL.md): the trifecta mapped to scopes and controls, and each harm category mapped to the OWASP Top 10 for LLM Applications.
 - [Haiku 5.5 results](https://github.com/cmdaniel/scope-injection-eval/blob/main/docs/RESULTS_HAIKU.md): the secondary analysis, with token and cost figures.
 - [Operations](https://github.com/cmdaniel/scope-injection-eval/blob/main/docs/OPERATIONS.md): model selection, token efficiency, cost, observability, and using AI to build deterministic components.
 
-> **Status (22 November 2026):** the harness is built and tested (60 tests, including an offline round-trip through the real Anthropic SDK against a local mock server). A **secondary, cost-constrained analysis on Claude Haiku 5.5** has been run in full: **[results and analysis](docs/RESULTS_HAIKU.md)**. The pre-registered primary analysis on Claude Opus 5.5 has not been run yet.
+> **Status (22 November 2026).** The harness is complete and tested: 60 offline tests, including a round-trip through the real Anthropic SDK against a local mock server. Two live runs have been made:
 >
-> A first live **smoke run** (16 episodes on `claude-opus-5-5`, $0.10) checked the pipeline end to end. It is not part of the pre-registered analysis, but it found an oracle false positive: the model declined a hijack in its answer and warned the user, naming the attacker's domain, and the oracle counted the mention as a hijack. The rule now needs a clickable link, the run was re-labelled with `scopeeval relabel`, and the fix is in the pre-registration change log. This is the kind of error the planned rater study (H6) exists to catch.
+> - a 16-episode **smoke run** on `claude-opus-5-5` ($0.10), outside the pre-registered analysis, which exposed the first oracle false positive (a warning that named the attacker's domain was counted as a hijack);
+> - a full **secondary analysis on `claude-haiku-5-5`** (1,680 episodes, $0.43): **[results and analysis](docs/RESULTS_HAIKU.md)**.
+>
+> The pre-registered primary analysis on Claude Opus 5.5 is [future work](#future-work). Every change to the oracle or the design is dated in the pre-registration change log.
 
 ## How it works
 
@@ -134,7 +137,7 @@ sequenceDiagram
 
   Every task reads untrusted content, so that leg is always present. The answer itself is an external channel in every scope, unless the egress filter removes external links.
 - **Tasks** (`tasks.py`): five benign tasks, each with a deterministic success check. Three of them need a write action, so the utility cost of tighter scope is measurable.
-- **Attacks** (`attacks.py`): four goals in five styles, plus a no-injection control. The goals are: exfiltrate personal data by email, exfiltrate it inside an image URL in the answer, delete a protected file, and hijack the answer with the attacker's link. `scopeeval generate` creates a separate attack set from a model. It is saved to `attacks/generated.json` and never used for tuning.
+- **Attacks** (`attacks.py`): four goals in five styles, plus a no-injection control. The goals are: exfiltrate personal data by email, exfiltrate it inside an image URL in the answer, delete a protected file, and hijack the answer with the attacker's link. `scopeeval generate` asks a model for a held-out attack set, saved to `attacks/generated.json` and never used for tuning. Refusals inside the model's answer, and shortfalls in the number of attacks returned, are recorded as non-attack rows. Token usage and cost go to `attacks/generated.usage.json`.
 - **Oracle** (`oracle.py`): labels each episode from the final state and the log, never from the model's own account. Each category is also mapped to the [OWASP Top 10 for LLM Applications, 2025 edition](https://genai.owasp.org/resource/owasp-top-10-for-llm-applications-2025/).
 
   | Category | Severity | Meaning | OWASP LLM 2025 |
@@ -148,7 +151,7 @@ sequenceDiagram
 - **Controls** (`controls.py`): an output egress filter that removes links and images pointing outside the organisation. It is applied to the final answer after the episode, so the report shows the harm that would remain with the filter in place, on the same episodes and at no extra cost.
 - **Statistics** (`stats.py`, no dependencies): Wilson intervals, bootstrap mean severity, Cohen's kappa and Mann-Whitney AUC.
 - **Agent** (`agents.py`):
-  - A manual Messages API loop with `claude-opus-5-5`, adaptive thinking, and effort set explicitly. It appends the full response content unchanged.
+  - A manual Messages API loop, `claude-opus-5-5` by default (`--model` selects another), with adaptive thinking (the default on these models) and effort set explicitly (`--effort`, default `medium`). It appends the full response content unchanged and stops after 12 turns.
   - **No refusal fallback, on purpose.** A fallback would silently swap the model under test, so a refusal is recorded as its own outcome.
   - An optional `spotlight` defence wraps tool output in `<untrusted_tool_output>` tags and tells the agent to treat it as data.
   - **Prompt caching, on by default.** One breakpoint on the system prompt caches the tools and system prompt, which every episode with the same scope and defence shares. Top-level automatic caching lets each turn re-read the earlier turns. Caching changes the price, not the model's output. `--no-cache` turns it off for a cost comparison.
@@ -214,31 +217,33 @@ This is a scripted agent that obeys each injection with probability 0.5, run ove
 - `broad_write` keeps all three legs, and its remaining harm after the filter is tool-channel harm (email exfiltration and deletion), which an output filter cannot undo.
 - With k = 20 attacks per group, the any-of-k breach rate is 100% in every cell, against per-attack rates of 22–48%. That is the scripted agent's 0.5 compliance at work, not a finding, but it shows why per-attack rates understate risk.
 
-The heuristic detector reaches AUC 0.97 on the templates it was tuned on. Whether that holds on generated attacks is research question 2.
+The heuristic detector reaches AUC 0.975 on the templates it was tuned on. Whether that holds on held-out attacks is research question 2, which the Haiku run could not test.
 
-## Cost of a real study
+## Cost of a study
 
-`scopeeval plan` gives an upper bound: about 12k input and 1.5k output tokens per episode on `claude-opus-5-5`, priced with no caching.
+`scopeeval plan` gives an upper bound before anything is spent: about 12k input and 1.5k output tokens per episode, priced with no caching. On `claude-opus-5-5`:
 - **Pilot:** 420 episodes (all tasks, template attacks and the control, four scopes, no defence), at most about $33.
 - **Primary grid:** 840 episodes per repeat (four scopes, two defences), with 2 repeats for ±7-point intervals, at most about $131.
 - **Smoke run** (the `--attack-ids` example above): 16 episodes, well under $2.
 
-The smoke run measured **$0.0065 per episode** with caching (86% of input read from the cache), against $0.018 for the same tokens without it. At that rate the pilot would cost about $3 and the primary grid about $11. Treat that as a lower guide: the smoke run used the shortest task, and half its episodes ended early in a refusal.
+Measured costs are far lower:
+- The Opus smoke run cost **$0.0065 per episode** with caching (86% of input read from the cache), against $0.018 for the same tokens without it. At that rate the pilot would cost about $3 and the primary grid about $11. Treat that as a lower guide: the smoke run used the shortest task, and half its episodes ended early in a refusal.
+- The full Haiku 5.5 grid (1,680 episodes) cost **$0.43**, or $0.00026 per episode.
 
-The real figure always comes from the run itself: every report has a "Tokens and cost (measured)" section, with the cost of the same tokens without caching alongside. Run a few episodes and read it before scaling up.
+Every report has a "Tokens and cost (measured)" section, with the cost of the same tokens without caching alongside. Run a few episodes and read it before scaling up. [Operations](docs/OPERATIONS.md) analyses model choice, token efficiency and cost in detail.
 
-Further savings, not yet implemented:
+Further savings (not implemented):
 - **Batch API (50% off, stacks with caching).** Submit turn *k* of every episode as one batch, run the tools locally, then submit turn *k*+1.
 - **Adaptive top-up.** Run one repeat, then add repeats only to cells whose interval is still wider than ±7 points. The rule must be added to the pre-registration before the run.
 
-Haiku 5.5 is about 40 times cheaper and useful for dry runs, but its results say nothing about Opus. A different model or effort level is a different experimental condition, not a saving.
+Haiku 5.5 is about 40 times cheaper per token, which makes it useful for exercising the pipeline, but its results say nothing about Opus. A different model or effort level is a different experimental condition, not a saving.
 
 Check current prices before running.
 
-## Roadmap
+## Future work
 
 1. Decide and pre-register whether an attacker URL quoted inside a refusal counts as a hijack (see the [Haiku results](docs/RESULTS_HAIKU.md)).
-2. Pilot on `claude-opus-5-5` (the smoke run and the Haiku secondary analysis are done), then the full pre-registered grid.
+2. Run the pilot on `claude-opus-5-5`, then the full pre-registered grid.
 3. Build a held-out attack set from a source other than the agent model (Haiku 5.5 refused to write one); compare detector AUC on templates and held-out attacks, with at least 100 clean documents.
 4. Collect two independent human labellings and report kappa against the oracle.
 5. Add an adaptive attacker: several rounds with feedback from failed attempts.
@@ -249,7 +254,7 @@ Check current prices before running.
 This harness is fit for a small, supervised research study. It is **not** fit for production use, whether as a continuous evaluation service, as a CI gate on agent releases, or as a source of defences. Getting there would take the work below.
 
 **Isolation and security**
-- Run each episode in its own container or VM with no network access, a read-only base image and resource limits. Today, tools run in the same Python process as the harness.
+- Run each episode in its own container or VM with no network access, a read-only base image and resource limits. In this version, tools run in the same Python process as the harness.
 - Serve the tools over a real MCP server and transport, with authentication, so the scope rules are enforced outside the agent's process, as they would be in a real deployment.
 - Enforce the output egress filter in the client that renders the answer, with an allowlist of hosts. Here it is applied after the episode, to measure its effect.
 - Design every agent so that it never holds all three legs of the lethal trifecta for one task, and review that design whenever a tool is added.
@@ -263,9 +268,9 @@ This harness is fit for a small, supervised research study. It is **not** fit fo
 - Enforce, with tests, that all test data stays synthetic: no real personal data, domains or phone numbers.
 
 **Reliability and operations**
-- Add retries with backoff, rate-limit handling, request timeouts and clear error categories. Today, an API error is recorded as an `error` episode and nothing more.
-- Add hard spending caps and budget alerts, not just the confirmation prompt; use the Batch API for lower cost (prompt caching is already on); and run episodes concurrently.
-- Add structured logging, metrics and tracing, and a run registry recording who ran what, when, with which settings and at what cost.
+- Add explicit retries with backoff, rate-limit handling, request timeouts and clear error categories. In this version, API calls rely on the SDK's default retries (two), and a request that still fails is recorded as an `error` episode.
+- Add hard spending caps and budget alerts, not just the confirmation prompt; use the Batch API for lower cost (prompt caching is already on); and build concurrency into the runner (the Haiku grid ran as eight separate processes, merged afterwards).
+- Export the per-request token, cost and timing records as metrics and traces (see [Operations](docs/OPERATIONS.md#6-observability)), and add a run registry recording who ran what, when, with which settings and at what cost.
 - Store secrets in a secrets manager rather than environment variables, and give operators least-privilege API keys.
 
 **Validity of the measurements**
