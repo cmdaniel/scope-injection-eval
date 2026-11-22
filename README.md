@@ -28,6 +28,8 @@ Most prompt-injection evaluations report a single attack success rate, measured 
 
 This project applies those habits to agent safety. The hypotheses, taxonomy and analysis plan are in [PREREGISTRATION.md](PREREGISTRATION.md), written before any model was run.
 
+For a short account of why the harness exists, what it has shown so far, and which problems it addresses, see the [STARS summary](https://github.com/cmdaniel/scope-injection-eval/blob/main/docs/STARS.md).
+
 > **Status (20 November 2026):** the harness is built and tested (35 tests). This includes an offline round-trip through the real Anthropic SDK against a local mock server. **No model results yet:** the numbers under "Pipeline check" come from a scripted agent and show only that the pipeline works.
 
 ## How it works
