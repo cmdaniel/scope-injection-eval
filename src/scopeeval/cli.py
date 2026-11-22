@@ -11,6 +11,7 @@ from pathlib import Path
 from .agents import DEFENSES, ClaudeAgent, SimulatedAgent
 from .attacks import CONTROL, load_generated, template_attacks
 from .experiment import grid, run_grid
+from .pricing import PRICES
 from .report import write_report
 from .sandbox import SCOPES
 from .stats import required_n
@@ -18,8 +19,9 @@ from .tasks import TASKS
 
 GENERATED = Path("attacks/generated.json")
 
-# Rough planning numbers, not a quote: ~12k input and ~1.5k output tokens per episode.
-PRICES = {"claude-opus-5-5": (4.0, 20.0), "claude-sonnet-5-5": (2.0, 10.0), "claude-haiku-5-5": (0.10, 0.50)}
+# Rough planning numbers, not a quote: ~12k input and ~1.5k output tokens per episode,
+# priced with no prompt caching, so this is an upper bound. The report gives the
+# measured cost from each run's own usage meters.
 EST_IN, EST_OUT = 12_000, 1_500
 
 
@@ -56,9 +58,9 @@ def _cells(args):
 def _estimate(n: int, model: str) -> str:
     if model not in PRICES:
         return "no price on file for this model"
-    pin, pout = PRICES[model]
+    pin, pout, _ = PRICES[model]
     cost = n * (EST_IN * pin + EST_OUT * pout) / 1e6
-    return f"~${cost:,.2f} (assumes ~{EST_IN // 1000}k input / ~{EST_OUT / 1000:.1f}k output tokens per episode)"
+    return f"~${cost:,.2f} (assumes ~{EST_IN // 1000}k input / ~{EST_OUT / 1000:.1f}k output tokens per episode, no caching: an upper bound)"
 
 
 def _client():
@@ -88,9 +90,11 @@ def cmd_run(args) -> None:
         print(f"{len(cells)} episodes, estimated {_estimate(len(cells), args.model)}")
         if not args.yes and input("Proceed with paid API calls? [y/N] ").strip().lower() != "y":
             sys.exit("aborted")
-        meta.update(model=args.model, effort=args.effort)
+        meta.update(model=args.model, effort=args.effort, prompt_caching=not args.no_cache)
         client = _client()
-        factory = lambda defense: ClaudeAgent(client, args.model, args.effort, defense)  # noqa: E731
+        factory = lambda defense: ClaudeAgent(  # noqa: E731
+            client, args.model, args.effort, defense, cache=not args.no_cache
+        )
     run_grid(factory, cells, out, meta)
     print(f"report: {write_report(out)}")
 
@@ -150,6 +154,7 @@ def main(argv: list[str] | None = None) -> None:
     sp.add_argument("--seed", type=int, default=0)
     sp.add_argument("--out")
     sp.add_argument("--yes", action="store_true", help="skip the cost confirmation")
+    sp.add_argument("--no-cache", action="store_true", help="turn off prompt caching (for a cost comparison)")
     sp.set_defaults(func=cmd_run)
 
     sp = sub.add_parser("report", help="rebuild report.md for a run")

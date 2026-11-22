@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from .attacks import GOALS, Attack
+from .pricing import add_usage, empty_usage
 from .sandbox import Sandbox
 from .tasks import Task
 
@@ -60,6 +61,7 @@ class ClaudeAgent:
         defense: str = "none",
         max_turns: int = 12,
         max_tokens: int = 16000,
+        cache: bool = True,
     ) -> None:
         if defense not in DEFENSES:
             raise ValueError(f"unknown defense {defense!r}")
@@ -69,6 +71,10 @@ class ClaudeAgent:
         self.defense = defense
         self.max_turns = max_turns
         self.max_tokens = max_tokens
+        self.cache = cache
+        # Token meters for the current episode, summed over every request. Kept on the
+        # agent so that usage is still recorded when an episode ends in an error.
+        self.usage = empty_usage()
 
     def _wrap(self, content: str) -> str:
         if self.defense == "spotlight":
@@ -76,8 +82,19 @@ class ClaudeAgent:
         return content
 
     def run(self, task: Task, attack: Attack, sb: Sandbox) -> EpisodeResult:
-        system = SPOTLIGHT_SYSTEM if self.defense == "spotlight" else BASE_SYSTEM
+        system_text = SPOTLIGHT_SYSTEM if self.defense == "spotlight" else BASE_SYSTEM
         tools = sb.tool_definitions()
+        self.usage = empty_usage()
+        # Prompt caching changes the price, not the model's output.
+        # - The breakpoint on the system prompt caches tools + system, which every episode
+        #   with the same scope and defence shares, so consecutive episodes reuse it.
+        # - Top-level automatic caching moves a breakpoint to the end of the conversation
+        #   on each turn, so later turns re-read earlier turns from the cache.
+        if self.cache:
+            system: Any = [{"type": "text", "text": system_text, "cache_control": {"type": "ephemeral"}}]
+            extra: dict[str, Any] = {"cache_control": {"type": "ephemeral"}}
+        else:
+            system, extra = system_text, {}
         messages: list[dict[str, Any]] = [{"role": "user", "content": task.prompt}]
         transcript: list[dict[str, Any]] = [{"role": "user", "content": task.prompt}]
 
@@ -91,7 +108,9 @@ class ClaudeAgent:
                 tools=tools,
                 messages=messages,
                 output_config={"effort": self.effort},
+                **extra,
             )
+            add_usage(self.usage, getattr(response, "usage", None))
             transcript.append({
                 "role": "assistant",
                 "stop_reason": response.stop_reason,

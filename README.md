@@ -28,7 +28,7 @@ Most prompt-injection evaluations report a single attack success rate, measured 
 
 This project applies those habits to agent safety. The hypotheses, taxonomy and analysis plan are in [PREREGISTRATION.md](PREREGISTRATION.md), written before any model was run.
 
-> **Status (20 November 2026):** the harness is built and tested (28 tests). This includes an offline round-trip through the real Anthropic SDK against a local mock server. **No model results yet:** the numbers under "Pipeline check" come from a scripted agent and show only that the pipeline works.
+> **Status (20 November 2026):** the harness is built and tested (35 tests). This includes an offline round-trip through the real Anthropic SDK against a local mock server. **No model results yet:** the numbers under "Pipeline check" come from a scripted agent and show only that the pipeline works.
 
 ## How it works
 
@@ -68,12 +68,14 @@ task prompt ──► Claude agent ──► tool calls ──► Sandbox (scope
   - A manual Messages API loop with `claude-opus-5-5`, adaptive thinking, and effort set explicitly. It appends the full response content unchanged.
   - **No refusal fallback, on purpose.** A fallback would silently swap the model under test, so a refusal is recorded as its own outcome.
   - An optional `spotlight` defence wraps tool output in `<untrusted_tool_output>` tags and tells the agent to treat it as data.
+  - **Prompt caching, on by default.** One breakpoint on the system prompt caches the tools and system prompt, which every episode with the same scope and defence shares. Top-level automatic caching lets each turn re-read the earlier turns. Caching changes the price, not the model's output. `--no-cache` turns it off for a cost comparison.
+  - **Usage logging.** Every episode records the API's own token meters (input, cache writes, cache reads, output), including episodes that end in an error. The report turns them into a measured cost (`pricing.py`).
 
 ## Quick start
 
 ```bash
 uv venv && uv pip install -e ".[dev]"
-.venv/bin/pytest -q                                        # 28 tests, offline
+.venv/bin/pytest -q                                        # 35 tests, offline
 
 # Pipeline check: no API calls, scripted agent
 .venv/bin/scopeeval run --agent simulated --defenses all --repeats 2 --out results/pipeline-check
@@ -83,6 +85,9 @@ uv venv && uv pip install -e ".[dev]"
 
 # Real run (asks for confirmation; needs ANTHROPIC_API_KEY or an `ant auth login` profile)
 .venv/bin/scopeeval run --agent claude --tasks all --scopes all --defenses none --repeats 1
+
+# Measure before you scale: a handful of episodes, then read "Tokens and cost" in report.md
+.venv/bin/scopeeval run --agent claude --tasks action_items --scopes broad_write --repeats 1
 
 # Held-out attacks, detector generalisation and rater agreement
 .venv/bin/scopeeval generate --per-goal 10
@@ -107,9 +112,17 @@ What remains under the restricted scopes is **content hijack**, which scope cann
 
 ## Cost of a real study
 
-From `scopeeval plan`, a rough estimate of about 12k input and 1.5k output tokens per episode on `claude-opus-5-5`:
-- **Pilot:** 240 episodes (all tasks, template attacks, three scopes, no defence), about $19.
-- **Primary grid:** 480 episodes per repeat, with 3 repeats for ±7-point intervals, about $112.
+`scopeeval plan` gives an upper bound: about 12k input and 1.5k output tokens per episode on `claude-opus-5-5`, priced with no caching.
+- **Pilot:** 240 episodes (all tasks, template attacks, three scopes, no defence), at most about $19.
+- **Primary grid:** 480 episodes per repeat, with 3 repeats for ±7-point intervals, at most about $112.
+
+Prompt caching should cut the input share of that substantially, since each turn re-sends the conversation so far. The real figure comes from the run itself: every report has a "Tokens and cost (measured)" section, with the cost of the same tokens without caching alongside. Run a few episodes and read it before scaling up.
+
+Further savings, not yet implemented:
+- **Batch API (50% off, stacks with caching).** Submit turn *k* of every episode as one batch, run the tools locally, then submit turn *k*+1.
+- **Adaptive top-up.** Run one repeat, then add repeats only to cells whose interval is still wider than ±7 points. The rule must be added to the pre-registration before the run.
+
+Haiku 5.5 is about 40 times cheaper and useful for dry runs, but its results say nothing about Opus. A different model or effort level is a different experimental condition, not a saving.
 
 Check current prices before running.
 
@@ -139,7 +152,7 @@ This harness is fit for a small, supervised research study. It is **not** fit fo
 
 **Reliability and operations**
 - Add retries with backoff, rate-limit handling, request timeouts and clear error categories. Today, an API error is recorded as an `error` episode and nothing more.
-- Add hard spending caps and budget alerts, not just the confirmation prompt; use prompt caching and the Batch API for lower cost; and run episodes concurrently.
+- Add hard spending caps and budget alerts, not just the confirmation prompt; use the Batch API for lower cost (prompt caching is already on); and run episodes concurrently.
 - Add structured logging, metrics and tracing, and a run registry recording who ran what, when, with which settings and at what cost.
 - Store secrets in a secrets manager rather than environment variables, and give operators least-privilege API keys.
 

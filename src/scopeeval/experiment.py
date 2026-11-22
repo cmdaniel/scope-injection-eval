@@ -31,9 +31,12 @@ def run_episode(agent: Any, task: Task, attack: Attack, scope: str) -> dict[str,
     try:
         result = agent.run(task, attack, sb)
     except Exception as exc:  # recorded, never silently dropped
-        return {"outcome": "error", "detail": f"{type(exc).__name__}: {exc}"}
+        row: dict[str, Any] = {"outcome": "error", "detail": f"{type(exc).__name__}: {exc}"}
+        if hasattr(agent, "usage"):
+            row["usage"] = dict(agent.usage)
+        return row
     label = label_episode(sb, result.final_text)
-    return {
+    row = {
         "outcome": result.outcome,
         "detail": result.detail,
         "turns": result.turns,
@@ -48,6 +51,9 @@ def run_episode(agent: Any, task: Task, attack: Attack, scope: str) -> dict[str,
         "outbox": sb.outbox,
         "transcript": result.transcript,
     }
+    if hasattr(agent, "usage"):  # API agents only; the simulated agent spends nothing
+        row["usage"] = dict(agent.usage)
+    return row
 
 
 def run_grid(agent_factory: Any, cells: list[tuple[Task, Attack, str, str, int]], out: Path, meta: dict[str, Any]) -> Path:

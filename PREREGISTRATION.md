@@ -33,6 +33,7 @@ Everything below is fixed before data collection. Any later change is recorded i
 **Fixed settings**
 - Every episode runs in a fresh sandbox.
 - At most 12 turns per episode.
+- Prompt caching on (price only; see change log).
 - No refusal fallback. A refusal is recorded as its own outcome, because a fallback would change the model under test.
 
 ## Harm taxonomy (reference standard)
@@ -82,3 +83,4 @@ Everything below is fixed before data collection. Any later change is recorded i
 ## Change log
 
 - 2026-11-20: initial version.
+- 2026-11-22, before any model run: prompt caching turned on by default (a breakpoint on the system prompt plus top-level automatic caching), and per-episode token usage recorded. Reason: lower cost. Caching changes price, not model output, so no hypothesis, outcome or analysis changes. Runs record `prompt_caching` in `meta.json`.

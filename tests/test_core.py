@@ -214,3 +214,90 @@ def test_claude_agent_blocked_tool_reaches_model_as_error():
 def test_heuristic_detector_separates_templates_from_clean():
     result = evaluate(HeuristicDetector(), template_attacks())
     assert result["results"]["template"]["auc"] > 0.9
+
+
+# --- Prompt caching and usage accounting -------------------------------------------
+
+from scopeeval.pricing import cost, uncached_cost  # noqa: E402
+from scopeeval.report import build_report  # noqa: E402
+
+
+def usage(inp, out, write=0, read=0):
+    return NS(input_tokens=inp, output_tokens=out, cache_creation_input_tokens=write, cache_read_input_tokens=read)
+
+
+def two_turn_client():
+    return FakeClient([
+        NS(stop_reason="tool_use", content=[tool_use("read_email", {"email_id": "e1"})], usage=usage(100, 20, write=900)),
+        NS(stop_reason="end_turn", content=[text("Northwind, Contoso, 2024 invoices.")], usage=usage(50, 10, read=1000)),
+    ])
+
+
+def test_caching_sends_system_and_automatic_breakpoints_and_sums_usage():
+    client = two_turn_client()
+    row = run_episode(ClaudeAgent(client), TASKS["action_items"], CONTROL, "read_only")
+    for req in client.requests:
+        assert req["cache_control"] == {"type": "ephemeral"}
+        assert req["system"][0]["cache_control"] == {"type": "ephemeral"}
+        assert req["system"][0]["text"].startswith("You are an assistant for an employee at Acme")
+    assert row["usage"] == {
+        "requests": 2, "input_tokens": 150, "output_tokens": 30,
+        "cache_creation_input_tokens": 900, "cache_read_input_tokens": 1000,
+    }
+
+
+def test_caching_can_be_turned_off():
+    client = two_turn_client()
+    run_episode(ClaudeAgent(client, cache=False), TASKS["action_items"], CONTROL, "read_only")
+    for req in client.requests:
+        assert "cache_control" not in req and isinstance(req["system"], str)
+
+
+def test_cached_prefix_is_identical_across_episodes_with_same_scope_and_defence():
+    # Cross-episode cache hits need byte-identical tools + system.
+    a, b = two_turn_client(), two_turn_client()
+    run_episode(ClaudeAgent(a), TASKS["action_items"], CONTROL, "scoped_write")
+    run_episode(ClaudeAgent(b), TASKS["invoice_total"], template_attacks()[0], "scoped_write")
+    assert a.requests[0]["tools"] == b.requests[0]["tools"]
+    assert a.requests[0]["system"] == b.requests[0]["system"]
+
+
+def test_usage_is_kept_when_an_episode_errors():
+    class Flaky(FakeClient):
+        def create(self, **kwargs):
+            if self.requests:
+                raise RuntimeError("connection reset")
+            return super().create(**kwargs)
+
+    client = Flaky([NS(stop_reason="tool_use", content=[tool_use("read_email", {"email_id": "e1"})], usage=usage(100, 20))])
+    row = run_episode(ClaudeAgent(client), TASKS["action_items"], CONTROL, "read_only")
+    assert row["outcome"] == "error" and row["usage"]["input_tokens"] == 100 and row["usage"]["requests"] == 1
+
+
+def test_simulated_agent_rows_carry_no_usage():
+    row = run_episode(SimulatedAgent(0.0), TASKS["action_items"], CONTROL, "read_only")
+    assert "usage" not in row
+
+
+def test_cost_counts_cache_writes_and_reads_at_their_own_prices():
+    u = {"input_tokens": 1_000_000, "cache_creation_input_tokens": 1_000_000,
+         "cache_read_input_tokens": 1_000_000, "output_tokens": 1_000_000}
+    # Opus 5.5: 4 + 4 * 1.25 + 0.20 + 20
+    assert cost(u, "claude-opus-5-5") == pytest.approx(29.20)
+    assert uncached_cost(u, "claude-opus-5-5") == pytest.approx(3 * 4 + 20)
+    assert cost(u, "unknown-model") is None
+
+
+def test_report_shows_measured_cost_only_when_usage_exists():
+    client = two_turn_client()
+    row = run_episode(ClaudeAgent(client), TASKS["action_items"], CONTROL, "read_only")
+    row.update(task="action_items", attack="control", attack_source="control", goal=None,
+               scope="read_only", defense="none", repeat=0, needs_write=False)
+    report = build_report([row], {"agent": "claude", "model": "claude-opus-5-5", "prompt_caching": True})
+    assert "## Tokens and cost (measured)" in report
+    assert "| cache_read_input_tokens | 1,000 | 1,000 |" in report
+    expected = cost(row["usage"], "claude-opus-5-5")
+    assert f"**Cost:** ${expected:,.2f}" in report
+    sim = dict(row)
+    sim.pop("usage")
+    assert "Tokens and cost" not in build_report([sim], {"agent": "simulated"})

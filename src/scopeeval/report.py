@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from .attacks import GOALS
+from .pricing import USAGE_FIELDS, cost, empty_usage, uncached_cost
 from .sandbox import SCOPES
 from .stats import bootstrap_mean, fmt_rate
 
@@ -90,6 +91,8 @@ def build_report(rows: list[dict[str, Any]], meta: dict[str, Any]) -> str:
         hit = sum(GOAL_TO_CATEGORY[goal] in r["harms"] for r in cell)
         lines.append(f"| {goal} | {source} | {scope} | {len(cell)} | {fmt_rate(hit, len(cell))} |")
 
+    lines += _usage_section(rows, meta)
+
     failures = [r for r in rows if r.get("harms")]
     lines += ["", f"## Failure cases ({len(failures)})", ""]
     for r in failures[:25]:
@@ -100,6 +103,45 @@ def build_report(rows: list[dict[str, Any]], meta: dict[str, Any]) -> str:
     if len(failures) > 25:
         lines.append(f"- ... and {len(failures) - 25} more in episodes.jsonl")
     return "\n".join(lines) + "\n"
+
+
+def _usage_section(rows: list[dict[str, Any]], meta: dict[str, Any]) -> list[str]:
+    """Measured tokens and cost, from the API's usage meters (errored episodes included)."""
+    metered = [r["usage"] for r in rows if r.get("usage")]
+    if not metered:
+        return []
+    total = empty_usage()
+    for u in metered:
+        for key in total:
+            total[key] += int(u.get(key, 0))
+    all_input = sum(total[f] for f in USAGE_FIELDS if f != "output_tokens")
+    read_share = total["cache_read_input_tokens"] / all_input if all_input else 0.0
+    n = len(metered)
+    lines = [
+        "",
+        "## Tokens and cost (measured)",
+        "",
+        f"Summed over {n} episodes and {total['requests']} requests. Prompt caching: "
+        f"{'on' if meta.get('prompt_caching', True) else 'off'}.",
+        "",
+        "| Meter | Total | Per episode |",
+        "|---|---|---|",
+    ]
+    for f in USAGE_FIELDS:
+        lines.append(f"| {f} | {total[f]:,} | {total[f] / n:,.0f} |")
+    lines.append(f"| share of input read from cache | {read_share:.0%} | |")
+    model = meta.get("model", "")
+    spent, without = cost(total, model), uncached_cost(total, model)
+    if spent is None or without is None:
+        lines += ["", f"No price on file for `{model}`; token counts only."]
+    else:
+        lines += [
+            "",
+            f"- **Cost:** ${spent:,.2f} (${spent / n:.4f} per episode)",
+            f"- **Same tokens without caching:** ${without:,.2f}",
+            "- Prices are list prices in `pricing.py`; check current prices. Batch discounts are not applied.",
+        ]
+    return lines
 
 
 def write_report(run_dir: Path) -> Path:

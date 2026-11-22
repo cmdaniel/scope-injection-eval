@@ -75,6 +75,11 @@ def test_real_sdk_roundtrip():
     first, last = requests[0], requests[-1]
     assert first["model"] == "claude-opus-5-5"
     assert first["output_config"] == {"effort": "medium"}
+    # Prompt caching: an automatic breakpoint plus one on the shared system prompt.
+    assert first["cache_control"] == {"type": "ephemeral"}
+    assert first["system"][0]["cache_control"] == {"type": "ephemeral"}
+    assert row["usage"]["requests"] == 3 and row["usage"]["input_tokens"] == 30
+    assert row["usage"]["output_tokens"] == 15
     assert all(t["strict"] is True for t in first["tools"])
     assert "delete_file" not in {t["name"] for t in first["tools"]}
     # The assistant tool_use turn was echoed back and followed by its tool_result.
