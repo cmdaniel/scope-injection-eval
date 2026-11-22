@@ -17,7 +17,7 @@ Three things make it hard to judge safety in practice:
 3. **The most-cited design advice is rarely measured.** The lethal trifecta ([Willison, 2025](https://simonwillison.net/2025/Jun/16/the-lethal-trifecta/)) says an agent with private data, untrusted content and an external channel can be turned into a data thief, and that the fix is to remove one leg rather than trust a filter. It is widely repeated, but how much each leg's removal buys, and what it costs, is seldom measured.
 4. **Safeguards are often adopted without evidence.** Least-privilege tool scoping, prompt-level defences and injection detectors are common. Few teams measure how much each one reduces harm, what it costs in completed work, or whether a detector trained on known attacks still works on new ones.
 
-My own background sets the context. I have spent many years building validated clinical screening tools, where a test is only trusted once its reference standard, thresholds, uncertainty and rater agreement have been measured.
+This is an independent, personal research project, not affiliated with any employer or organisation, and it uses only fictional data. The approach here comes from many years of building validated clinical screening tools, where a test is only trusted once its reference standard, thresholds, uncertainty and rater agreement have been measured. Agent-safety evaluations are rarely held to that standard, and this project tries to apply it.
 
 ## Task
 

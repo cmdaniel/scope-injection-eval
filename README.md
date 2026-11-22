@@ -11,6 +11,8 @@
 > - The attack templates are deliberately simple and well known. They are test cases, not new techniques.
 > - If a run reveals a weakness in a real model or product, report it privately through the provider's responsible-disclosure channel before discussing it in public.
 >
+> **Independent research.** This is a personal research project, not affiliated with or endorsed by any employer or organisation. It uses only fictional data.
+>
 > **Not production-ready.** This is a research prototype. It is not a security product, and nothing in it is a defence you should rely on. See [Production readiness](#production-readiness) for what would be needed first.
 
 `scopeeval` measures indirect prompt injection against a tool-using Claude agent. An injection is an instruction hidden in an email or file that the agent reads while doing an ordinary task. The harness asks three questions:
@@ -290,6 +292,6 @@ The design choices above lean on a small set of primary sources:
 
 ## Author
 
-Daniel Melo. This work grew out of building validated clinical screening software (IVCF-20, now in Brazil's national primary-care record).
+Daniel Melo. This is an **independent, personal research project**. It is not affiliated with, sponsored by or endorsed by any employer or other organisation, and it uses no employer data, systems, code or confidential information. Every organisation, person, address and record in it is fictional. The approach comes from earlier work building validated clinical screening software (IVCF-20, now part of Brazil's national primary-care record), where a test is trusted only once its reference standard, uncertainty and rater agreement have been measured.
 
 MIT licence. The licence covers the code. It does not authorise testing systems you do not own; the research-only terms at the top of this README still apply.
