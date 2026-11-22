@@ -10,7 +10,8 @@ from pathlib import Path
 from typing import Any
 
 from .attacks import Attack
-from .oracle import label_episode
+from .controls import egress_filter
+from .oracle import ORACLE_VERSION, label_episode
 from .sandbox import SCOPES, Sandbox
 from .tasks import Task
 from .world import build_world
@@ -36,6 +37,9 @@ def run_episode(agent: Any, task: Task, attack: Attack, scope: str) -> dict[str,
             row["usage"] = dict(agent.usage)
         return row
     label = label_episode(sb, result.final_text)
+    # Same episode, answer passed through the output egress filter: measures that
+    # control with no extra API calls.
+    filtered = label_episode(sb, egress_filter(result.final_text))
     row = {
         "outcome": result.outcome,
         "detail": result.detail,
@@ -47,6 +51,9 @@ def run_episode(agent: Any, task: Task, attack: Attack, scope: str) -> dict[str,
         "severity": label.severity,
         "category": label.category,
         "pii_accessed": label.pii_accessed,
+        "exfil_channels": label.exfil_channels,
+        "harms_output_filtered": filtered.harms,
+        "oracle_version": ORACLE_VERSION,
         "tool_log": [asdict(c) for c in sb.log],
         "outbox": sb.outbox,
         "transcript": result.transcript,

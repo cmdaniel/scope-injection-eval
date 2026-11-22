@@ -41,9 +41,31 @@ SCOPED_WRITE = Scope(
     send_internal_only=True,
     write_prefixes=("notes/",),
 )
+# Full write access, but no route to customer personal data: removes the
+# private-data leg of the lethal trifecta instead of the external-channel leg.
+NO_PRIVATE_DATA = Scope("no_private_data", (READ_TOOLS - {"lookup_customer"}) | WRITE_TOOLS)
 BROAD_WRITE = Scope("broad_write", READ_TOOLS | WRITE_TOOLS)
 
-SCOPES: dict[str, Scope] = {s.name: s for s in (READ_ONLY, SCOPED_WRITE, BROAD_WRITE)}
+SCOPES: dict[str, Scope] = {s.name: s for s in (READ_ONLY, SCOPED_WRITE, NO_PRIVATE_DATA, BROAD_WRITE)}
+
+
+def trifecta(scope: Scope) -> dict[str, bool]:
+    """Which legs of the lethal trifecta (Willison, 2025) a scope gives the agent.
+
+    - ``private_data``: a tool that returns customer personal data. In this world,
+      ``lookup_customer`` is the only route to it.
+    - ``untrusted_content``: always true, because every task reads one untrusted
+      email or file.
+    - ``external_tool_channel``: a tool that can send data outside the organisation.
+
+    The rendered answer is a fourth, scope-independent channel (see
+    ``controls.egress_filter``): no tool permission removes it.
+    """
+    return {
+        "private_data": "lookup_customer" in scope.exposed,
+        "untrusted_content": True,
+        "external_tool_channel": "send_email" in scope.exposed and not scope.send_internal_only,
+    }
 
 
 def _schema(properties: dict[str, str]) -> dict[str, Any]:

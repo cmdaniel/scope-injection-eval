@@ -1,4 +1,4 @@
-"""Command-line entry point: scopeeval {run,report,detect,generate,label-export,kappa,plan}."""
+"""Command-line entry point: scopeeval {run,report,relabel,detect,generate,label-export,kappa,plan}."""
 
 from __future__ import annotations
 
@@ -12,6 +12,7 @@ from .agents import DEFENSES, ClaudeAgent, SimulatedAgent
 from .attacks import CONTROL, load_generated, template_attacks
 from .experiment import grid, run_grid
 from .pricing import PRICES
+from .relabel import relabel_run
 from .report import write_report
 from .sandbox import SCOPES
 from .stats import required_n
@@ -33,7 +34,7 @@ def _split(value: str, allowed: list[str]) -> list[str]:
     return items
 
 
-def _attacks(which: str):
+def _attacks(which: str, ids: str | None = None):
     attacks = [CONTROL]
     if which in {"templates", "all"}:
         attacks += template_attacks()
@@ -42,13 +43,19 @@ def _attacks(which: str):
         if not gen:
             sys.exit(f"no generated attacks at {GENERATED}; run `scopeeval generate` first")
         attacks += gen
+    if ids:
+        wanted = ids.split(",")
+        unknown = [i for i in wanted if i not in {a.id for a in attacks}]
+        if unknown:
+            sys.exit(f"unknown attack ids {unknown}")
+        attacks = [a for a in attacks if a.id in wanted]
     return attacks
 
 
 def _cells(args):
     return grid(
         [TASKS[t] for t in _split(args.tasks, list(TASKS))],
-        _attacks(args.attacks),
+        _attacks(args.attacks, args.attack_ids),
         _split(args.scopes, list(SCOPES)),
         _split(args.defenses, list(DEFENSES)),
         args.repeats,
@@ -81,7 +88,7 @@ def cmd_run(args) -> None:
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     out = Path(args.out or f"results/{args.agent}-{stamp}")
     meta = {"agent": args.agent, "tasks": args.tasks, "attacks": args.attacks, "scopes": args.scopes,
-            "defenses": args.defenses, "repeats": args.repeats, "started": stamp}
+            "defenses": args.defenses, "repeats": args.repeats, "attack_ids": args.attack_ids, "started": stamp}
     if args.agent == "simulated":
         meta.update(compliance=args.compliance, seed=args.seed)
         sim = SimulatedAgent(args.compliance, args.seed)
@@ -97,6 +104,12 @@ def cmd_run(args) -> None:
         )
     run_grid(factory, cells, out, meta)
     print(f"report: {write_report(out)}")
+
+
+def cmd_relabel(args) -> None:
+    rows, changed = relabel_run(Path(args.run_dir))
+    print(f"relabelled {rows} episodes; labels changed on {changed}; originals kept in episodes.orig.jsonl")
+    print(f"report: {write_report(Path(args.run_dir))}")
 
 
 def cmd_report(args) -> None:
@@ -141,6 +154,7 @@ def main(argv: list[str] | None = None) -> None:
         sp.add_argument("--defenses", default="none")
         sp.add_argument("--repeats", type=int, default=1)
         sp.add_argument("--model", default="claude-opus-5-5")
+        sp.add_argument("--attack-ids", help="comma-separated attack ids (e.g. control,tpl-exfil_render-plain)")
 
     sp = sub.add_parser("plan", help="count episodes and estimate cost; no API calls")
     grid_args(sp)
@@ -156,6 +170,10 @@ def main(argv: list[str] | None = None) -> None:
     sp.add_argument("--yes", action="store_true", help="skip the cost confirmation")
     sp.add_argument("--no-cache", action="store_true", help="turn off prompt caching (for a cost comparison)")
     sp.set_defaults(func=cmd_run)
+
+    sp = sub.add_parser("relabel", help="re-apply the current oracle to a stored run; no API calls")
+    sp.add_argument("run_dir")
+    sp.set_defaults(func=cmd_relabel)
 
     sp = sub.add_parser("report", help="rebuild report.md for a run")
     sp.add_argument("run_dir")

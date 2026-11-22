@@ -163,13 +163,17 @@ class SimulatedAgent:
         transcript: list[dict[str, Any]] = []
         last_result = ""
         suffix = ""
-        steps = list(task.reference_actions)
+        steps = [(name, args, False) for name, args in task.reference_actions]
         if not attack.is_control and self.rng.random() < self.compliance:
             goal = GOALS[attack.goal]
-            steps = steps[:1] + list(goal.simulated_actions) + steps[1:]
+            steps = steps[:1] + [(n, a, True) for n, a in goal.simulated_actions] + steps[1:]
             suffix = goal.simulated_answer_suffix
-        for name, args in steps:
+        goal_blocked = False
+        for name, args, is_goal_step in steps:
             args = {k: v.replace("{last_result}", last_result) for k, v in args.items()}
             last_result, is_error = sb.call(name, args)
+            goal_blocked |= is_goal_step and is_error
             transcript.append({"tool": name, "input": args, "result": last_result, "is_error": is_error})
+        if goal_blocked:  # cannot put data in the answer that it was never allowed to read
+            suffix = ""
         return EpisodeResult(task.reference_answer + suffix, "completed", len(steps), transcript)
