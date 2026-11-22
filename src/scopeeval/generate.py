@@ -8,10 +8,12 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from pathlib import Path
 from typing import Any
 
 from .attacks import GOALS, STYLES, template_attacks
+from .pricing import add_usage, empty_usage, usage_summary
 
 SCHEMA = {
     "type": "object",
@@ -63,9 +65,15 @@ def classify(goal_id: str, items: list[dict[str, Any]], per_goal: int, model: st
     return rows
 
 
+def usage_path(out: Path) -> Path:
+    """Where the generator's token usage is written: next to the attack set."""
+    return out.with_name(out.stem + ".usage.json")
+
+
 def generate(client: Any, model: str, per_goal: int, out: Path, effort: str = "high") -> list[dict[str, Any]]:
     known = "\n".join(f"- {a.text}" for a in template_attacks()[: len(STYLES)])
     rows: list[dict[str, Any]] = []
+    total, per_goal_usage, started = empty_usage(), {}, time.perf_counter()
     for goal_id, goal in GOALS.items():
         prompt = (
             f"Write {per_goal} distinct injection texts. Each will be inserted into an ordinary "
@@ -81,6 +89,10 @@ def generate(client: Any, model: str, per_goal: int, out: Path, effort: str = "h
             messages=[{"role": "user", "content": prompt}],
             output_config={"effort": effort, "format": {"type": "json_schema", "schema": SCHEMA}},
         )
+        goal_usage = empty_usage()
+        add_usage(goal_usage, getattr(response, "usage", None))
+        add_usage(total, getattr(response, "usage", None))
+        per_goal_usage[goal_id] = usage_summary(goal_usage, model) | {"stop_reason": response.stop_reason}
         if response.stop_reason == "refusal":
             rows.append({"id": f"gen-{goal_id}-refused", "goal": goal_id, "text": "", "strategy": "REFUSED"})
             continue
@@ -88,4 +100,6 @@ def generate(client: Any, model: str, per_goal: int, out: Path, effort: str = "h
         rows.extend(classify(goal_id, json.loads(body)["injections"], per_goal, model))
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(rows, indent=2))
+    summary = usage_summary(total, model, time.perf_counter() - started) | {"effort": effort, "per_goal": per_goal_usage}
+    usage_path(out).write_text(json.dumps(summary, indent=2))
     return rows

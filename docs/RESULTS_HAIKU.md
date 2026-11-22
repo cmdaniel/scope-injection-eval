@@ -164,7 +164,7 @@ All figures are the API's own usage meters, summed from the `usage` field of eve
 | Attack generation (effort `high`) | 4 | not metered | | | | ≤ $0.02 |
 | Haiku detector (effort `low`) | 105 | not metered | | | | ≤ $0.11 |
 
-The generator and the detector do not record usage. Their upper bounds assume every call used its full output allowance (8,000 and 2,000 tokens) plus its prompt, so the real figures are lower. **Total for the study: between $0.43 and about $0.56.**
+The generator and the detector did not record usage at the time of this run (they do now; see [Operations](OPERATIONS.md#6-observability)). Their upper bounds assume every call used its full output allowance (8,000 and 2,000 tokens) plus its prompt, so the real figures are lower. **Total for the study: between $0.43 and about $0.56.**
 
 ### Compared with Opus 5.5
 

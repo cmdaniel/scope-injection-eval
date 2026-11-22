@@ -127,8 +127,12 @@ def cmd_detect(args) -> None:
 def cmd_generate(args) -> None:
     from .generate import generate
 
+    from .generate import usage_path
+
     rows = generate(_client(), args.model, args.per_goal, GENERATED)
+    usage = json.loads(usage_path(GENERATED).read_text())
     print(f"wrote {len(rows)} rows to {GENERATED}")
+    print(f"usage: {usage['requests']} requests, {usage['output_tokens']:,} output tokens, cost ${usage['cost_usd']} -> {usage_path(GENERATED)}")
 
 
 def cmd_label_export(args) -> None:

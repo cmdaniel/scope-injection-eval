@@ -54,3 +54,16 @@ def uncached_cost(usage: dict[str, int], model: str) -> float | None:
     p_in, p_out, _ = PRICES[model]
     all_input = sum(usage.get(f, 0) for f in USAGE_FIELDS if f != "output_tokens")
     return (all_input * p_in + usage.get("output_tokens", 0) * p_out) / 1e6
+
+
+def usage_summary(usage: dict[str, int], model: str, seconds: float | None = None) -> dict[str, Any]:
+    """Token meters plus their cost, ready to write next to a run's output."""
+    summary: dict[str, Any] = {"model": model, **usage}
+    total_input = sum(usage.get(f, 0) for f in USAGE_FIELDS if f != "output_tokens")
+    summary["cache_read_share"] = round(usage.get("cache_read_input_tokens", 0) / total_input, 4) if total_input else 0.0
+    spent, without = cost(usage, model), uncached_cost(usage, model)
+    summary["cost_usd"] = round(spent, 6) if spent is not None else None
+    summary["cost_usd_without_cache"] = round(without, 6) if without is not None else None
+    if seconds is not None:
+        summary["seconds"] = round(seconds, 2)
+    return summary

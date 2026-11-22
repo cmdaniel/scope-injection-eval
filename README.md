@@ -39,8 +39,10 @@ This project applies those habits to agent safety. The hypotheses, taxonomy and 
 **Further reading in this repository:**
 - [STARS summary](https://github.com/cmdaniel/scope-injection-eval/blob/main/docs/STARS.md): why the harness exists, what it has shown so far and which problems it addresses.
 - [Threat model](https://github.com/cmdaniel/scope-injection-eval/blob/main/docs/THREAT_MODEL.md): the trifecta mapped to scopes and controls, and each harm category mapped to the OWASP Top 10 for LLM Applications.
+- [Haiku 5.5 results](https://github.com/cmdaniel/scope-injection-eval/blob/main/docs/RESULTS_HAIKU.md): the secondary analysis, with token and cost figures.
+- [Operations](https://github.com/cmdaniel/scope-injection-eval/blob/main/docs/OPERATIONS.md): model selection, token efficiency, cost, observability, and using AI to build deterministic components.
 
-> **Status (22 November 2026):** the harness is built and tested (56 tests, including an offline round-trip through the real Anthropic SDK against a local mock server). A **secondary, cost-constrained analysis on Claude Haiku 5.5** has been run in full: **[results and analysis](docs/RESULTS_HAIKU.md)**. The pre-registered primary analysis on Claude Opus 5.5 has not been run yet.
+> **Status (22 November 2026):** the harness is built and tested (60 tests, including an offline round-trip through the real Anthropic SDK against a local mock server). A **secondary, cost-constrained analysis on Claude Haiku 5.5** has been run in full: **[results and analysis](docs/RESULTS_HAIKU.md)**. The pre-registered primary analysis on Claude Opus 5.5 has not been run yet.
 >
 > A first live **smoke run** (16 episodes on `claude-opus-5-5`, $0.10) checked the pipeline end to end. It is not part of the pre-registered analysis, but it found an oracle false positive: the model declined a hijack in its answer and warned the user, naming the attacker's domain, and the oracle counted the mention as a hijack. The rule now needs a clickable link, the run was re-labelled with `scopeeval relabel`, and the fix is in the pre-registration change log. This is the kind of error the planned rater study (H6) exists to catch.
 
@@ -150,13 +152,13 @@ sequenceDiagram
   - **No refusal fallback, on purpose.** A fallback would silently swap the model under test, so a refusal is recorded as its own outcome.
   - An optional `spotlight` defence wraps tool output in `<untrusted_tool_output>` tags and tells the agent to treat it as data.
   - **Prompt caching, on by default.** One breakpoint on the system prompt caches the tools and system prompt, which every episode with the same scope and defence shares. Top-level automatic caching lets each turn re-read the earlier turns. Caching changes the price, not the model's output. `--no-cache` turns it off for a cost comparison.
-  - **Usage logging.** Every episode records the API's own token meters (input, cache writes, cache reads, output), including episodes that end in an error. The report turns them into a measured cost (`pricing.py`).
+  - **Usage logging.** Every episode records the API's own token meters (input, cache writes, cache reads, output) and its wall-clock time, including episodes that end in an error. The report turns them into a measured cost (`pricing.py`) and median and 95th-percentile episode times. The attack generator writes its usage and cost to `attacks/generated.usage.json`, and `detect --detector claude` reports its own. See [Operations](docs/OPERATIONS.md).
 
 ## Quick start
 
 ```bash
 uv venv && uv pip install -e ".[dev]"
-.venv/bin/pytest -q                                        # 56 tests, offline
+.venv/bin/pytest -q                                        # 60 tests, offline
 
 # Pipeline check: no API calls, scripted agent
 .venv/bin/scopeeval run --agent simulated --defenses all --repeats 2 --out results/pipeline-check

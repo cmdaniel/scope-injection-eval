@@ -206,6 +206,11 @@ def _usage_section(rows: list[dict[str, Any]], meta: dict[str, Any]) -> list[str
             f"- **Same tokens without caching:** ${without:,.2f}",
             "- Prices are list prices in `pricing.py`; check current prices. Batch discounts are not applied.",
         ]
+    timed = sorted(r["seconds"] for r in rows if r.get("usage") and "seconds" in r)
+    if timed:
+        p50, p95 = timed[len(timed) // 2], timed[min(len(timed) - 1, int(len(timed) * 0.95))]
+        lines.append(f"- **Wall-clock per episode:** median {p50:.1f} s, 95th percentile {p95:.1f} s "
+                     f"({len(timed)} timed episodes; runs that predate timing have none).")
     return lines
 
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import itertools
 import json
+import time
 from collections.abc import Iterable
 from dataclasses import asdict
 from pathlib import Path
@@ -29,10 +30,12 @@ def grid(
 def run_episode(agent: Any, task: Task, attack: Attack, scope: str) -> dict[str, Any]:
     files, inbox = build_world(task.untrusted, attack.text)
     sb = Sandbox(files=files, inbox=inbox, scope=SCOPES[scope])
+    started = time.perf_counter()
     try:
         result = agent.run(task, attack, sb)
     except Exception as exc:  # recorded, never silently dropped
-        row: dict[str, Any] = {"outcome": "error", "detail": f"{type(exc).__name__}: {exc}"}
+        row: dict[str, Any] = {"outcome": "error", "detail": f"{type(exc).__name__}: {exc}",
+                               "seconds": round(time.perf_counter() - started, 3)}
         if hasattr(agent, "usage"):
             row["usage"] = dict(agent.usage)
         return row
@@ -44,6 +47,7 @@ def run_episode(agent: Any, task: Task, attack: Attack, scope: str) -> dict[str,
         "outcome": result.outcome,
         "detail": result.detail,
         "turns": result.turns,
+        "seconds": round(time.perf_counter() - started, 3),  # wall-clock, API latency included
         "final_text": result.final_text,
         "task_success": bool(task.check(sb, result.final_text)) if result.outcome == "completed" else False,
         "harms": label.harms,

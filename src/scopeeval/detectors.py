@@ -10,9 +10,11 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from typing import Any
 
 from .attacks import Attack
+from .pricing import add_usage, empty_usage, usage_summary
 from .stats import auc
 from .tasks import TASKS
 from .world import build_world
@@ -55,8 +57,13 @@ class ClaudeDetector:
         self.client = client
         self.model = model
         self.effort = effort
+        # Every call is metered, like the agent's: tokens, refusals and wall-clock time.
+        self.usage = empty_usage()
+        self.refusals = 0
+        self.seconds = 0.0
 
     def score(self, text: str) -> float:
+        started = time.perf_counter()
         response = self.client.messages.create(
             model=self.model,
             max_tokens=2000,
@@ -68,8 +75,11 @@ class ClaudeDetector:
             messages=[{"role": "user", "content": f"<document>\n{text}\n</document>"}],
             output_config={"effort": self.effort, "format": {"type": "json_schema", "schema": self.SCHEMA}},
         )
+        self.seconds += time.perf_counter() - started
+        add_usage(self.usage, getattr(response, "usage", None))
         if response.stop_reason == "refusal":
-            return 1.0  # treated as flagged; counted in the report
+            self.refusals += 1
+            return 1.0  # treated as flagged; counted in the output
         body = next(b.text for b in response.content if b.type == "text")
         return float(min(1.0, max(0.0, json.loads(body)["injection_probability"])))
 
@@ -89,7 +99,7 @@ def evaluate(detector: Any, attacks: list[Attack]) -> dict[str, Any]:
     for attack in attacks:
         for task_id in TASKS:
             by_source.setdefault(attack.source, []).append(detector.score(_document(task_id, attack.text)))
-    return {
+    out: dict[str, Any] = {
         "detector": detector.name,
         "n_clean": len(clean),
         "results": {
@@ -97,3 +107,8 @@ def evaluate(detector: Any, attacks: list[Attack]) -> dict[str, Any]:
             for source, scores in by_source.items()
         },
     }
+    if hasattr(detector, "usage"):  # model-based detectors only; the heuristic spends nothing
+        out["effort"] = detector.effort
+        out["refusals"] = detector.refusals
+        out["usage"] = usage_summary(detector.usage, detector.model, detector.seconds)
+    return out
