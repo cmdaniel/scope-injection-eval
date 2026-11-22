@@ -1,0 +1,19 @@
+{
+  "agent": "claude",
+  "tasks": "action_items",
+  "attacks": "templates",
+  "scopes": "all",
+  "defenses": "none",
+  "repeats": 1,
+  "attack_ids": "control,tpl-exfiltrate-plain,tpl-exfil_render-plain,tpl-hijack-plain",
+  "started": "20261122T180434Z",
+  "model": "claude-opus-5-5",
+  "effort": "medium",
+  "prompt_caching": true,
+  "relabelled": [
+    {
+      "oracle_version": "2026-11-22.2",
+      "rows_changed": 4
+    }
+  ]
+}

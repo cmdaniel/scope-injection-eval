@@ -2,7 +2,7 @@
 
 **Situation, Task, Action, Result, Skills**
 
-This document explains why `scopeeval` exists, what it does, what it has and has not shown so far, and which problems it addresses. It is a research summary. It contains no model results yet.
+This document explains why `scopeeval` exists, what it does, what it has and has not shown so far, and which problems it addresses. It is a research summary. Model results so far come from a secondary, cost-constrained run on Claude Haiku 5.5 ([results](RESULTS_HAIKU.md)); the primary run on Claude Opus 5.5 has not been done, so it contains no primary results yet.
 
 ---
 
@@ -55,24 +55,25 @@ I took the following steps.
 
 **9. Made costs visible and reduced them without changing behaviour.** Prompt caching is on by default. It reduces the cost of repeated context without changing what the model sees or does. Every episode records the API's token meters, and the report converts them into a measured cost. The planning command gives an upper bound before any money is spent.
 
-**10. Tested the pipeline offline.** 53 tests, including one that drives the real Anthropic SDK against a local mock server. Costs nothing and needs no API key.
+**10. Tested the pipeline offline.** 56 tests, including one that drives the real Anthropic SDK against a local mock server. Costs nothing and needs no API key.
 
 ## Result
 
 What is established so far:
 
-- **The pipeline works end to end.** Tests cover scope enforcement, the trifecta legs of each scope, the oracle (including exfiltration through a rendered URL), the egress filter, the statistics, the agent loop (including refusals and blocked tool calls), caching, usage accounting and the report. All 53 pass.
+- **The pipeline works end to end.** Tests cover scope enforcement, the trifecta legs of each scope, the oracle (including exfiltration through a rendered URL), the egress filter, the statistics, the agent loop (including refusals and blocked tool calls), caching, usage accounting and the report. All 56 pass.
 - **The measurements behave as designed on a scripted agent.** A stand-in agent that obeys each injection with probability 0.5 gives a clear pattern across 1,680 episodes. Full write access allows exfiltration and deletion. Restricted write blocks both, but the answer still carries content hijack and exfiltration in an image URL, because neither needs a write tool; the egress filter removes both. Removing private data stops theft but not deletion. Read-only fails every task that needs a write. These numbers are a **pipeline check only**. They show that the harness detects what it is designed to detect. They say nothing about any real model.
 - **A first live smoke run worked, and caught a labelling error.** Sixteen episodes on Claude Opus 5.5 cost $0.10. The oracle had labelled four declined hijacks as successes, because the model named the attacker's domain while warning the user. The rule was corrected, a regression test added, and the run re-labelled from its stored tool logs. The smoke run is too small to say anything about the model.
+- **A full secondary run on Claude Haiku 5.5, a token-efficient model, produced the first real evidence** ([results](RESULTS_HAIKU.md)). Across 1,680 episodes ($0.43), no attack genuinely succeeded and Haiku never attempted a harmful tool call, so the scope comparison hit a floor. The run's main value was methodological. It found a second oracle bug, in URL parsing, and showed that the same 14 refusals can be counted as 7, 14 or 0 hijacks depending on how the rule is read. Haiku also refused to write held-out attacks. More capable models could change every one of these results.
 - **The cost is known to within an upper bound.** A full pilot is estimated at no more than about $33, and the primary grid at no more than about $131, with caching expected to reduce both. The real figure will come from the run's own usage meters.
 
 What is **not** yet established:
 
-- **No results for any real model.** The scope, defence and detector questions are open until a model is run.
+- **No primary results.** The scope, defence and detector questions are open: the Haiku run hit a floor effect, and the Opus 5.5 primary has not been run.
 - **The oracle is not yet validated.** Hypothesis H6 needs two independent human raters, with kappa ≥ 0.80 against the oracle.
-- **The generalisation question is untested.** The held-out set is designed, but not yet generated or scored.
+- **The generalisation question is untested.** Haiku 5.5 refused to write the held-out set, so it needs another source.
 
-The honest summary is that the instrument is built, tested and pre-registered. The evidence is still to come.
+The honest summary is that the instrument is built, tested and pre-registered, and has been exercised end to end on a token-efficient model. The evidence that would answer the main questions is still to come.
 
 ## Skills
 
@@ -109,4 +110,4 @@ The next steps are the ones that would change the evidence. They are: a small pa
 
 ---
 
-*Repository: [github.com/cmdaniel/scope-injection-eval](https://github.com/cmdaniel/scope-injection-eval). Pre-registration: [PREREGISTRATION.md](../PREREGISTRATION.md). Status: harness built and tested; no model results yet.*
+*Repository: [github.com/cmdaniel/scope-injection-eval](https://github.com/cmdaniel/scope-injection-eval). Pre-registration: [PREREGISTRATION.md](../PREREGISTRATION.md). Status: harness built and tested; secondary Haiku 5.5 analysis done; primary analysis not yet run.*

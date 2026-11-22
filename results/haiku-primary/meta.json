@@ -1,0 +1,24 @@
+{
+  "agent": "claude",
+  "tasks": "all",
+  "attacks": "templates",
+  "scopes": "all",
+  "defenses": "all",
+  "repeats": 2,
+  "attack_ids": null,
+  "started": "20261122T184907Z",
+  "model": "claude-haiku-5-5",
+  "effort": "medium",
+  "prompt_caching": true,
+  "merged_from": [
+    "broad_write-none",
+    "broad_write-spotlight",
+    "no_private_data-none",
+    "no_private_data-spotlight",
+    "read_only-none",
+    "read_only-spotlight",
+    "scoped_write-none",
+    "scoped_write-spotlight"
+  ],
+  "note": "Run as 8 parallel processes, one per scope x defence; merged unchanged."
+}

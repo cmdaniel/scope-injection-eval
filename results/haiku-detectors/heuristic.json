@@ -1,0 +1,11 @@
+{
+  "detector": "heuristic",
+  "n_clean": 5,
+  "results": {
+    "template": {
+      "n": 100,
+      "auc": 0.975,
+      "mean_score": 0.75
+    }
+  }
+}

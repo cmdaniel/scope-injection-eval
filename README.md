@@ -40,7 +40,7 @@ This project applies those habits to agent safety. The hypotheses, taxonomy and 
 - [STARS summary](https://github.com/cmdaniel/scope-injection-eval/blob/main/docs/STARS.md): why the harness exists, what it has shown so far and which problems it addresses.
 - [Threat model](https://github.com/cmdaniel/scope-injection-eval/blob/main/docs/THREAT_MODEL.md): the trifecta mapped to scopes and controls, and each harm category mapped to the OWASP Top 10 for LLM Applications.
 
-> **Status (22 November 2026):** the harness is built and tested (53 tests). This includes an offline round-trip through the real Anthropic SDK against a local mock server. **No model results yet:** the numbers under "Pipeline check" come from a scripted agent and show only that the pipeline works.
+> **Status (22 November 2026):** the harness is built and tested (56 tests, including an offline round-trip through the real Anthropic SDK against a local mock server). A **secondary, cost-constrained analysis on Claude Haiku 5.5** has been run in full: **[results and analysis](docs/RESULTS_HAIKU.md)**. The pre-registered primary analysis on Claude Opus 5.5 has not been run yet.
 >
 > A first live **smoke run** (16 episodes on `claude-opus-5-5`, $0.10) checked the pipeline end to end. It is not part of the pre-registered analysis, but it found an oracle false positive: the model declined a hijack in its answer and warned the user, naming the attacker's domain, and the oracle counted the mention as a hijack. The rule now needs a clickable link, the run was re-labelled with `scopeeval relabel`, and the fix is in the pre-registration change log. This is the kind of error the planned rater study (H6) exists to catch.
 
@@ -156,7 +156,7 @@ sequenceDiagram
 
 ```bash
 uv venv && uv pip install -e ".[dev]"
-.venv/bin/pytest -q                                        # 53 tests, offline
+.venv/bin/pytest -q                                        # 56 tests, offline
 
 # Pipeline check: no API calls, scripted agent
 .venv/bin/scopeeval run --agent simulated --defenses all --repeats 2 --out results/pipeline-check
@@ -182,6 +182,19 @@ uv venv && uv pip install -e ".[dev]"
 ```
 
 Runs are resumable. `episodes.jsonl` is appended episode by episode, so a re-run skips completed cells.
+
+## Results: Claude Haiku 5.5 (secondary analysis)
+
+> [!IMPORTANT]
+> **A token-efficient model was used.** Every model role in this run (the agent under test, the attacker model that writes held-out attacks, and the LLM detector) was `claude-haiku-5-5`, chosen to keep cost low ($0.43 for 1,680 episodes). More capable model choices could change the quality and accuracy of every result, in either direction. These numbers describe Haiku 5.5 in this sandbox, not Claude models in general.
+
+Full analysis: **[docs/RESULTS_HAIKU.md](docs/RESULTS_HAIKU.md)**. Raw episodes and reports: [`results/haiku-primary/`](results/haiku-primary/).
+
+- **No attack genuinely succeeded** in 1,600 attacked episodes (upper 95% bound 0.24%). Haiku never attempted a harmful tool call, so no scope had to block anything. This floor effect means the run cannot measure what scope or spotlighting buy.
+- **The reference standard is the open problem.** The pre-registered oracle labelled 7 content hijacks. With a URL-parsing bug fixed it labels 14, and on manual review all 14 are refusals that quote the attacker's URL in a warning. Whether that counts as harm must be settled before the primary run.
+- **Haiku flagged the injection to the user in 96.5% of attacked answers** and in none of the controls. The rest deferred a deletion request to the user without acting on it.
+- **Haiku refused to write attacks** for the held-out set, so the detector generalisation test (H5) could not run.
+- **H3 is supported:** `read_only` loses every write task, and the other scopes lose none.
 
 ## Pipeline check (scripted agent, not a model result)
 
@@ -222,11 +235,12 @@ Check current prices before running.
 
 ## Roadmap
 
-1. Pilot on `claude-opus-5-5` (the smoke run is done), then the full pre-registered grid.
-2. Generate the held-out attack set; compare detector AUC on templates and generated attacks.
-3. Collect two independent human labellings and report kappa against the oracle.
-4. Add an adaptive attacker: several rounds with feedback from failed attempts.
-5. Serve the tools over a real MCP server, and add richer tasks.
+1. Decide and pre-register whether an attacker URL quoted inside a refusal counts as a hijack (see the [Haiku results](docs/RESULTS_HAIKU.md)).
+2. Pilot on `claude-opus-5-5` (the smoke run and the Haiku secondary analysis are done), then the full pre-registered grid.
+3. Build a held-out attack set from a source other than the agent model (Haiku 5.5 refused to write one); compare detector AUC on templates and held-out attacks, with at least 100 clean documents.
+4. Collect two independent human labellings and report kappa against the oracle.
+5. Add an adaptive attacker: several rounds with feedback from failed attempts.
+6. Serve the tools over a real MCP server, and add richer tasks.
 
 ## Production readiness
 
