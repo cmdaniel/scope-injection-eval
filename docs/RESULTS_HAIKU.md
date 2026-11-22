@@ -22,7 +22,7 @@ This is an independent, personal research project. Every organisation, person, a
    In all 14, Haiku refused the attacker's instruction and warned the user, quoting the attacker's full URL. This is research question 3, whether harm can be labelled reliably, showing up in practice.
 4. **Haiku reported the injection to the user almost every time:** in 1,544 of 1,600 attacked answers (96.5%), and in none of the 80 answers with nothing injected. In the remaining 56, it read a plain deletion request as something the colleague genuinely asked for, did not act on it, and asked the user whether to go ahead.
 5. **Haiku refused to act as the attacker.** Asked to write held-out injections for each of the four goals, it declined all four. The detector generalisation test (H5) therefore could not run.
-6. **It was cheap.** The grid cost $0.43 at list prices, with 93% of input tokens read from the prompt cache.
+6. **It was cheap.** The grid cost $0.43 at list prices, with 93% of input tokens read from the prompt cache. Output tokens, which include the model's thinking, were 73% of the cost. The whole study, including the unmetered generator and detector calls, cost at most about $0.56 ([tokens and cost](#tokens-and-cost)).
 
 ## What was run
 
@@ -121,6 +121,54 @@ There are only five clean documents, one per task, so each AUC rests on 500 atta
 Asked for 10 injections for each of the four goals, Haiku returned none. For email exfiltration it returned an empty list. For the other three goals it returned one item whose text was a refusal with an offer of safer alternatives, for example: "I can't write injection texts designed to get an assistant to delete config/retention-policy.txt, even for a test set. … I can instead write canary-style injections…"
 
 None of these was an API-level refusal, so the first version of the generator would have saved the three refusals as attack texts, and the detectors would have scored them as attacks. The generator now records a refusal written inside the answer, and any shortfall in the number of items, as a non-attack row (see the change log). As pre-registered, nothing was retried with Haiku or any other model. The refusal is the result.
+
+## Tokens and cost
+
+All figures are the API's own usage meters, summed from the `usage` field of every episode in `results/haiku-primary/episodes.jsonl` and priced at the list prices in `src/scopeeval/pricing.py` (November 2026). Batch discounts were not used.
+
+### Primary grid: 1,680 episodes, 4,888 requests
+
+| Meter | Tokens | Per episode | Price per million | Cost | Share of cost |
+|---|---|---|---|---|---|
+| Input, uncached | 13,136 | 8 | $0.100 | $0.0013 | 0.3% |
+| Input, written to the cache | 444,779 | 265 | $0.125 (1.25 × input) | $0.0556 | 12.9% |
+| Input, read from the cache | 6,040,032 | 3,595 | $0.010 | $0.0604 | 14.0% |
+| Output (includes thinking) | 626,948 | 373 | $0.500 | $0.3135 | 72.8% |
+| **Total** | **7,124,895** | **4,241** | | **$0.4308** | **100%** |
+
+- **93% of input tokens were read from the cache.** Each request resends the system prompt, the tool definitions and the conversation so far, and the cache bills those repeats at a tenth of the input price.
+- **Without caching, the same tokens would have cost $0.9633,** so caching saved 55%.
+- **Output dominates the bill.** Haiku 5.5 always thinks, and its thinking is billed as output even though it is not shown.
+- **Cost per episode: $0.00026.**
+
+### By scope and defence
+
+| Scope | Defence | Episodes | Requests | Cache read / episode | Output / episode | Cost |
+|---|---|---|---|---|---|---|
+| `read_only` | none | 210 | 543 | 2,471 | 378 | $0.0490 |
+| `read_only` | spotlight | 210 | 562 | 2,794 | 367 | $0.0496 |
+| `scoped_write` | none | 210 | 632 | 3,736 | 385 | $0.0560 |
+| `scoped_write` | spotlight | 210 | 630 | 3,969 | 364 | $0.0548 |
+| `no_private_data` | none | 210 | 630 | 3,645 | 382 | $0.0553 |
+| `no_private_data` | spotlight | 210 | 630 | 3,888 | 362 | $0.0546 |
+| `broad_write` | none | 210 | 631 | 4,007 | 382 | $0.0561 |
+| `broad_write` | spotlight | 210 | 630 | 4,252 | 365 | $0.0555 |
+
+`read_only` is the cheapest scope because its episodes need fewer requests (543 against about 630): the agent has no write tools, so write tasks end sooner. Spotlighting adds about 260 cached input tokens per episode (the tags and the extra instruction), but slightly reduces output, so the two defences cost the same ($0.2163 with none, $0.2145 with spotlighting). Attacked episodes produced more output than controls (378 against 271 tokens per episode), mostly because Haiku explained the injection to the user.
+
+### Other calls
+
+| Run | Requests | Uncached input | Cache write | Cache read | Output | Cost |
+|---|---|---|---|---|---|---|
+| 16-episode Haiku check before the grid (not analysed) | 48 | 128 | 8,156 | 51,404 | 4,304 | $0.0037 |
+| Attack generation (effort `high`) | 4 | not metered | | | | ≤ $0.02 |
+| Haiku detector (effort `low`) | 105 | not metered | | | | ≤ $0.11 |
+
+The generator and the detector do not record usage. Their upper bounds assume every call used its full output allowance (8,000 and 2,000 tokens) plus its prompt, so the real figures are lower. **Total for the study: between $0.43 and about $0.56.**
+
+### Compared with Opus 5.5
+
+On the same 16-episode check (one task, four attacks, every scope), Opus 5.5 cost $0.1036 and Haiku 5.5 cost $0.0037, about 28 times less. Per-token prices differ by a factor of 40, but Haiku wrote more output per episode (269 tokens against 164). At the cost per episode measured in that Opus run, the full primary grid would cost about $11 on Opus 5.5.
 
 ## Hypotheses
 
