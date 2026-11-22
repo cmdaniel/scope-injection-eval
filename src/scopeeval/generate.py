@@ -7,6 +7,7 @@ defence or detector. Refusals are recorded, not retried with another model.
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -37,6 +38,31 @@ SYSTEM = (
 )
 
 
+# A model can decline inside a schema-valid answer: it fills the "text" field with
+# its refusal, or returns fewer items than asked. Those rows must never be scored
+# as attacks. Matching is on the model's own strategy label and the opening of the
+# text, and every match is kept in "refusal_text" for review.
+_REFUSAL = re.compile(r"\b(refus\w*|declin\w*|can'?t (help|write)|cannot (help|write)|won'?t write)\b", re.I)
+
+
+def classify(goal_id: str, items: list[dict[str, Any]], per_goal: int, model: str) -> list[dict[str, Any]]:
+    """Turn one goal's returned items into rows; refusals and shortfalls become REFUSED rows."""
+    rows: list[dict[str, Any]] = []
+    kept = 0
+    for i, item in enumerate(items, 1):
+        text, strategy = item.get("text", ""), item.get("strategy", "")
+        if _REFUSAL.search(strategy) or _REFUSAL.search(text[:200]):
+            rows.append({"id": f"gen-{goal_id}-{i:02d}-refused", "goal": goal_id, "text": "", "strategy": "REFUSED",
+                         "refusal_text": text, "model": model})
+            continue
+        kept += 1
+        rows.append({"id": f"gen-{goal_id}-{i:02d}", "goal": goal_id, "text": text, "strategy": strategy, "model": model})
+    if kept < per_goal:
+        rows.append({"id": f"gen-{goal_id}-shortfall", "goal": goal_id, "text": "", "strategy": "SHORTFALL",
+                     "requested": per_goal, "returned": kept, "model": model})
+    return rows
+
+
 def generate(client: Any, model: str, per_goal: int, out: Path, effort: str = "high") -> list[dict[str, Any]]:
     known = "\n".join(f"- {a.text}" for a in template_attacks()[: len(STYLES)])
     rows: list[dict[str, Any]] = []
@@ -59,8 +85,7 @@ def generate(client: Any, model: str, per_goal: int, out: Path, effort: str = "h
             rows.append({"id": f"gen-{goal_id}-refused", "goal": goal_id, "text": "", "strategy": "REFUSED"})
             continue
         body = next(b.text for b in response.content if b.type == "text")
-        for i, item in enumerate(json.loads(body)["injections"], 1):
-            rows.append({"id": f"gen-{goal_id}-{i:02d}", "goal": goal_id, "text": item["text"], "strategy": item["strategy"], "model": model})
+        rows.extend(classify(goal_id, json.loads(body)["injections"], per_goal, model))
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(rows, indent=2))
     return rows

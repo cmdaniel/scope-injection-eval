@@ -4,3 +4,8 @@ __pycache__/
 results/*
 !results/.gitkeep
 .pytest_cache/
+# Published runs (everything else under results/ stays local)
+!results/haiku-primary/
+!results/haiku-primary-oracle-v3/
+!results/haiku-detectors/
+!results/smoke-opus/

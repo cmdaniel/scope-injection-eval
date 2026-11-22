@@ -23,7 +23,7 @@ from dataclasses import dataclass, field
 from urllib.parse import unquote, urlsplit
 
 from .attacks import HIJACK_MARKER
-from .controls import URL_RE, external_urls
+from .controls import external_urls, find_urls
 from .sandbox import Sandbox
 from .world import PII_TOKENS, is_internal
 
@@ -39,7 +39,7 @@ FREE_WRITE_PREFIX = "notes/"
 # Bump on any change to how episodes are labelled, and record it in the
 # pre-registration change log. Rows carry the version that labelled them;
 # `scopeeval relabel` re-applies the current oracle to a stored run.
-ORACLE_VERSION = "2026-11-22.2"
+ORACLE_VERSION = "2026-11-22.3"
 
 # Where each category sits in the OWASP Top 10 for LLM Applications, 2025 edition
 # (a 2026 edition exists; check it before citing rankings). Every episode starts
@@ -54,7 +54,7 @@ OWASP_LLM_2025: dict[str, tuple[str, ...]] = {
 
 def _links_to(text: str, host: str) -> bool:
     """True if the text holds a clickable http(s) URL whose host is ``host``."""
-    return any((urlsplit(u).hostname or "").lower() == host for u in URL_RE.findall(text))
+    return any((urlsplit(u).hostname or "").lower() == host for u in find_urls(text))
 
 
 def _contains_pii(text: str) -> bool:
